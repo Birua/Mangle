@@ -43,14 +43,14 @@ class DialogConvert(QtGui.QProgressDialog):
             QtGui.QMessageBox.critical(self, 'Mangle', 'Cannot create directory %s' % directory)
             self.close()
             return
-            
+
         if self.book.imageFlags & ImageFlags.Cbz:
             filename = os.path.join(os.path.join(unicode(self.directory), unicode(self.book.title)),unicode(self.book.title)+".cbz")
             if not self.book.overwrite and os.path.isfile(filename):
                 self.close()
                 return
             self.cbz = zipfile.ZipFile(filename, "w")
-            
+
         try:
             base = os.path.join(directory, unicode(self.book.title))
             mangaSaveName = base + '.manga_save'
@@ -70,7 +70,7 @@ class DialogConvert(QtGui.QProgressDialog):
         for index in xrange(0,len(self.book.images)):
             if self.book.overwrite or not os.path.isfile(target%index):
                 source = unicode(self.book.images[index])
-                ct = ConvertThread(source,target,index, unicode(self.book.device), self.book.imageFlags, self.book.cropThreshold)
+                ct = ConvertThread(source,target,index, unicode(self.book.device), self.book.imageFlags, self.book.cropThreshold, index+1, len(self.book.images), self.book.progressBar)
                 QtCore.QObject.connect(ct.emitter,QtCore.SIGNAL("targetSaved(QStringList)"),self.postprocessImages)
                 QtCore.QObject.connect(ct.emitter,QtCore.SIGNAL("threadError(QString)"),self.threadError)
                 self.threadPool.start(ct)
@@ -99,7 +99,7 @@ class DialogConvert(QtGui.QProgressDialog):
         self.setLabelText('Processed %s...' % os.path.split(unicode(images[0]))[1])
         for page in images:
             if self.book.imageFlags & ImageFlags.Cbz:
-                self.packPage(unicode(page))        
+                self.packPage(unicode(page))
         if self.value() == -1:
             self.allThreadsFinished()
 
