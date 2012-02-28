@@ -1,4 +1,4 @@
-# Copyright (C) 2010  Alex Yatskov
+﻿# Copyright (C) 2010  Alex Yatskov
 # Copyright (C) 2011  Stanislav (proDOOMman) Kosolapov <prodoomman@gmail.com>
 #
 # This program is free software: you can redistribute it and/or modify
@@ -26,6 +26,8 @@ class ImageFlags:
     Reverse = 1 << 5
     Cbz = 1 << 6
     Crop = 1 << 7
+    CutNumbers = 1 << 8
+    ProgressBar = 1 << 9
 
 
 class KindleData:
@@ -159,6 +161,101 @@ def frameImage(image, foreground, background, size):
 
     return imageBg
 
+
+def cutPageNumber(image):
+
+    widthImg, heightImg = image.size
+
+    delta = 2 # Зададим шаг
+    diff = delta
+    fixedThreshold = 5
+
+    #Защита от чистого листа
+    if ImageStat.Stat(image).var[0] < 2*fixedThreshold:
+        return image
+
+    while ImageStat.Stat(image.crop((0,heightImg-diff,widthImg,heightImg))).var[0] < fixedThreshold \
+    and diff < heightImg:
+        diff += delta
+    diff -= delta
+
+    # Дальше сканируем вероятный номер на странице
+    pageNumberCut1=diff #Расстояние снизу до вероятного номера страницы
+    if diff<delta:
+       diff=delta
+    oldStat=ImageStat.Stat(image.crop((0,heightImg-diff,widthImg,heightImg))).var[0]
+    diff += delta
+    while ImageStat.Stat(image.crop((0,heightImg-diff,widthImg,heightImg))).var[0] - oldStat > 0 \
+    and diff < heightImg/4:
+        oldStat=ImageStat.Stat(image.crop((0,heightImg-diff,widthImg,heightImg))).var[0]
+##        print '1',diff,oldStat
+        diff += delta
+    diff -= delta
+    pageNumberCut2=diff #Расстояние снизу включая номер страницы
+
+    #Сканируем вероятную белую полосу над номером
+    diff += delta
+    oldStat=ImageStat.Stat(image.crop((0,heightImg-diff,widthImg,heightImg-pageNumberCut2))).var[0]
+    while ImageStat.Stat(image.crop((0,heightImg-diff,widthImg,heightImg-pageNumberCut2))).var[0] < fixedThreshold+oldStat \
+    and diff < heightImg/4:
+##        print '2',diff
+        diff += delta
+    diff -= delta
+    pageNumberCut3=diff #Расстояние снизу до картинки включая номер страницы и белую полосу
+
+    #Определим ширину номера страницы
+    #================================
+    delta = 5 # Изменим шаг
+
+    diff = delta
+    while ImageStat.Stat(image.crop((0,heightImg-pageNumberCut2,diff,heightImg))).var[0] < fixedThreshold \
+    and diff < widthImg:
+        diff += delta
+    diff -= delta
+    pageNumberX1 = diff #X координата начала номера страницы
+
+    diff = delta
+    while ImageStat.Stat(image.crop((widthImg-diff,heightImg-pageNumberCut2,widthImg,heightImg))).var[0] < fixedThreshold \
+    and diff < widthImg:
+        diff += delta
+    diff -= delta
+    pageNumberX2=widthImg-diff #X координата конца номера страницы
+
+##    print pageNumberCut1,pageNumberCut2,pageNumberCut3
+
+    #Логика: номер и полоса сверху должны быть больше 2*дельта, иначе не стоит вырезать;
+    #        ширина номера должна быть не более чем в 9.0 раз больше высоты, иначе - это коммент;
+    #        ну и не резать выше четверти картинки, чтоб не наглеть;
+    #        также не вырезать больше 1/10 от .Stat().var[0] картинки
+    #Возможно параметр ширина/высота (9.0) стоит дать менять?
+    #пока подобрал его по своим примерам, для самого широкого варианта
+    if pageNumberCut3-pageNumberCut1 > 2*delta and \
+       float(pageNumberX2-pageNumberX1)/float(pageNumberCut2-pageNumberCut1) <= 9.0 and \
+       ImageStat.Stat(image.crop((0,heightImg-pageNumberCut3,widthImg,heightImg))).var[0] / ImageStat.Stat(image).var[0] < 0.1 and \
+       pageNumberCut3 < heightImg/4-delta:
+      diff=pageNumberCut3
+##      print 'Cutting page number!',pageNumberCut3-pageNumberCut1,'pixels saved!'
+    else:
+      diff=pageNumberCut1
+
+##    print pageNumberCut3-pageNumberCut1 > 2*delta, \
+##          ImageStat.Stat(image.crop((0,heightImg-pageNumberCut3,widthImg,heightImg))).var[0] / ImageStat.Stat(image).var[0], \
+##          float(pageNumberX2-pageNumberX1)/float(pageNumberCut2-pageNumberCut1), \
+##          pageNumberCut3 < heightImg/4-delta
+##
+##    #Draw to debug
+##
+##    draw = ImageDraw.Draw(image)
+##    #Black rectangle
+##    draw.rectangle([(0,heightImg-pageNumberCut1), (widthImg,heightImg)], outline=0)
+##    draw.rectangle([(pageNumberX1,heightImg-pageNumberCut2), (pageNumberX2,heightImg)], outline=0)
+##    draw.rectangle([(20,heightImg-pageNumberCut3), (widthImg-20,heightImg)], outline=0)
+
+#    print "Down crop: %s"%diff
+    image = image.crop((0,0,widthImg,heightImg-diff))
+
+    return image
+
 def cropWhiteSpace(image, threshold):
 #    print "Old size: %sx%s"%(image.size[0],image.size[1])
     widthImg, heightImg = image.size
@@ -201,7 +298,55 @@ def cropWhiteSpace(image, threshold):
 #    print "New size: %sx%s"%(image.size[0],image.size[1])
     return image
 
-def convertImage(source, target, index, device, flags, crop_threshold):
+def add_progressbar(image, file_number, files_totalnumber, size, howoften):
+
+  if file_number//howoften!=float(file_number)/howoften:
+    return image
+
+  widthImg, heightImg = image.size
+
+  #========================================================================
+  #Сделаем картинку полной по ширине, для одинаковых размеров прогресс бара
+
+  white = (255,255,255) #Белый цвет
+  black = (0,0,0) #Черный цвет
+
+  widthDev, heightDev = size
+  widthImg, heightImg = image.size
+
+  pastePt = (
+        max(0, (widthDev - widthImg) / 2),
+        max(0, (heightDev - heightImg) / 2)
+    )
+
+  imageBg = Image.new('RGB',size,white)
+
+  imageBg.paste(image, pastePt)
+  image=imageBg
+  widthImg, heightImg = image.size
+
+  #========================================================================
+
+  draw = ImageDraw.Draw(image)
+  #Black rectangle
+  draw.rectangle([(0,heightImg-3), (widthImg,heightImg)], outline=black, fill=black)
+  #White rectangle
+  draw.rectangle([(widthImg*file_number/files_totalnumber,heightImg-3), (widthImg-1,heightImg)], outline=black, fill=white)
+
+  #Making notches
+  for i in range(1,10):
+    if i <= (10*file_number/files_totalnumber):
+        notch_colour=white #White
+    else:
+        notch_colour=black  #Black
+    draw.line([(widthImg*float(i)/10,heightImg-3), (widthImg*float(i)/10,heightImg)],fill=notch_colour)
+    #The 50%
+    if i==5:
+        draw.rectangle([(widthImg/2-1,heightImg-5), (widthImg/2+1,heightImg)],outline=black,fill=notch_colour)
+
+  return image
+
+def convertImage(source, target, index, device, flags, crop_threshold, file_number, files_totalnumber, progressBar):
     try:
         size, palette = KindleData.Profiles[device]
     except KeyError:
@@ -254,6 +399,8 @@ def convertImage(source, target, index, device, flags, crop_threshold):
                 tmp_image = image.crop(boxlist[count%2])
         else:
             tmp_image = image
+        if flags & ImageFlags.CutNumbers:
+            tmp_image = cutPageNumber(tmp_image)
         if flags & ImageFlags.Crop:
             tmp_image = cropWhiteSpace(tmp_image, crop_threshold)
         if flags & ImageFlags.Orient:
@@ -262,6 +409,8 @@ def convertImage(source, target, index, device, flags, crop_threshold):
             tmp_image = resizeImage(tmp_image, size)
         if flags & ImageFlags.Frame:
             tmp_image = frameImage(tmp_image, tuple(palette[:3]), tuple(palette[-3:]), size)
+        if flags & ImageFlags.ProgressBar:
+            tmp_image = add_progressbar(tmp_image, file_number,files_totalnumber, size, progressBar)
         if flags & ImageFlags.Quantize:
             tmp_image = quantizeImage(tmp_image, palette)
         try:
