@@ -35,6 +35,8 @@ class DialogOptions(QtGui.QDialog, Ui_DialogOptions):
         QtCore.QObject.connect(self.comboBoxDevice,QtCore.SIGNAL('currentIndexChanged(int)'),self.updatePreview)
         #QtCore.QObject.connect(self.checkboxCbz,QtCore.SIGNAL('toggled(bool)'),self.updatePreview)
         QtCore.QObject.connect(self.checkboxCrop,QtCore.SIGNAL('toggled(bool)'),self.updatePreview)
+        QtCore.QObject.connect(self.checkboxCutNumbers,QtCore.SIGNAL('toggled(bool)'),self.updatePreview)
+        QtCore.QObject.connect(self.checkboxProgressBar,QtCore.SIGNAL('toggled(bool)'),self.updatePreview)
         QtCore.QObject.connect(self.checkboxFrame,QtCore.SIGNAL('toggled(bool)'),self.updatePreview)
         QtCore.QObject.connect(self.checkboxOrient,QtCore.SIGNAL('toggled(bool)'),self.updatePreview)
         #QtCore.QObject.connect(self.checkboxOverwrite,QtCore.SIGNAL('toggled(bool)'),self.updatePreview)
@@ -43,10 +45,12 @@ class DialogOptions(QtGui.QDialog, Ui_DialogOptions):
         QtCore.QObject.connect(self.checkboxReverse,QtCore.SIGNAL('toggled(bool)'),self.updatePreview)
         QtCore.QObject.connect(self.checkboxSplit,QtCore.SIGNAL('toggled(bool)'),self.updatePreview)
         QtCore.QObject.connect(self.thresholdSpinBox,QtCore.SIGNAL('valueChanged(double)'),self.restartTimer)
+        QtCore.QObject.connect(self.spinboxProgressBar,QtCore.SIGNAL('valueChanged(int)'),self.restartTimer)
         QtCore.QObject.connect(self.prevPreviewButton,QtCore.SIGNAL('clicked()'),self.prevImage)
         QtCore.QObject.connect(self.nextPreviewButton,QtCore.SIGNAL('clicked()'),self.nextImage)
         QtCore.QObject.connect(self.previewSpinBox,QtCore.SIGNAL('valueChanged(int)'),self.changeImage)
-        self.previewSpinBox.setMaximum(len(self.book.images)-1)
+        self.previewSpinBox.setMaximum(len(self.book.images))
+        self.previewSpinBox.setMinimum(0)
         #TODO: preview pics popup
 
 
@@ -56,6 +60,8 @@ class DialogOptions(QtGui.QDialog, Ui_DialogOptions):
 
 
     def changeImage(self, index):
+        index-=1 #To start pictures from 1 not 0
+
         if index == -1:
             self.prevOrig.setPixmap(QtGui.QPixmap(":/img/preview/page.png"))
         else:
@@ -78,6 +84,7 @@ class DialogOptions(QtGui.QDialog, Ui_DialogOptions):
                 try:
                     archivename, filename = imagename.split(" NAME://")
                     archivename = archivename[6:]
+                    print archivename, filename
                     archive = rarfile.RarFile(archivename)
                     qt_image = QtGui.QImage()
                     qt_image.loadFromData(archive.read(filename))
@@ -130,6 +137,8 @@ class DialogOptions(QtGui.QDialog, Ui_DialogOptions):
                     tmp_image = image.crop(boxlist[count%2])
             else:
                 tmp_image = image
+            if flags & ImageFlags.CutNumbers:
+               tmp_image = Img.cutPageNumber(tmp_image)
             if flags & ImageFlags.Crop:
                 tmp_image = Img.cropWhiteSpace(tmp_image,self.thresholdSpinBox.value())
             if flags & ImageFlags.Orient:
@@ -138,6 +147,11 @@ class DialogOptions(QtGui.QDialog, Ui_DialogOptions):
                 tmp_image = Img.resizeImage(tmp_image, size)
             if flags & ImageFlags.Frame:
                 tmp_image = Img.frameImage(tmp_image, tuple(palette[:3]), tuple(palette[-3:]), size)
+            if flags & ImageFlags.ProgressBar:
+                if self.previewSpinBox.value()==0:
+                  tmp_image = Img.add_progressbar(tmp_image,1,1, size, self.spinboxProgressBar.value())
+                else:
+                  tmp_image = Img.add_progressbar(tmp_image,self.previewSpinBox.value(),self.previewSpinBox.value(), size, self.spinboxProgressBar.value())
             if flags & ImageFlags.Quantize:
                 tmp_image = Img.quantizeImage(tmp_image, palette)
             count -= 1
@@ -169,7 +183,10 @@ class DialogOptions(QtGui.QDialog, Ui_DialogOptions):
         self.checkboxReverse.setChecked(QtCore.Qt.Checked if self.book.imageFlags & ImageFlags.Reverse else QtCore.Qt.Unchecked)
         self.checkboxCbz.setChecked(QtCore.Qt.Checked if self.book.imageFlags & ImageFlags.Cbz else QtCore.Qt.Unchecked)
         self.checkboxCrop.setChecked(QtCore.Qt.Checked if self.book.imageFlags & ImageFlags.Crop else QtCore.Qt.Unchecked)
+        self.checkboxCutNumbers.setChecked(QtCore.Qt.Checked if self.book.imageFlags & ImageFlags.CutNumbers else QtCore.Qt.Unchecked)
+        self.checkboxProgressBar.setChecked(QtCore.Qt.Checked if self.book.imageFlags & ImageFlags.ProgressBar else QtCore.Qt.Unchecked)
         self.thresholdSpinBox.setValue(self.book.cropThreshold)
+        self.spinboxProgressBar.setValue(self.book.progressBar)
 
 
     def getImageFlags(self):
@@ -190,6 +207,10 @@ class DialogOptions(QtGui.QDialog, Ui_DialogOptions):
             imageFlags |= ImageFlags.Cbz
         if self.checkboxCrop.checkState() == QtCore.Qt.Checked:
             imageFlags |= ImageFlags.Crop
+        if self.checkboxCutNumbers.checkState() == QtCore.Qt.Checked:
+            imageFlags |= ImageFlags.CutNumbers
+        if self.checkboxProgressBar.checkState() == QtCore.Qt.Checked:
+            imageFlags |= ImageFlags.ProgressBar
         return imageFlags
 
     def moveDialogToOptions(self):
@@ -197,6 +218,7 @@ class DialogOptions(QtGui.QDialog, Ui_DialogOptions):
         device = self.comboBoxDevice.itemText(self.comboBoxDevice.currentIndex())
         overwrite = self.checkboxOverwrite.checkState() == QtCore.Qt.Checked
         cropThreshold = self.thresholdSpinBox.value()
+        progressBar = self.spinboxProgressBar.value()
 
         imageFlags = self.getImageFlags()
 
@@ -205,7 +227,8 @@ class DialogOptions(QtGui.QDialog, Ui_DialogOptions):
             self.book.device != device or
             self.book.overwrite != overwrite or
             self.book.imageFlags != imageFlags or
-            self.book.cropThreshold != cropThreshold
+            self.book.cropThreshold != cropThreshold or
+            self.book.progressBar != progressBar
         )
 
         if modified:
@@ -215,3 +238,4 @@ class DialogOptions(QtGui.QDialog, Ui_DialogOptions):
             self.book.overwrite = overwrite
             self.book.imageFlags = imageFlags
             self.book.cropThreshold = cropThreshold
+            self.book.progressBar = progressBar
