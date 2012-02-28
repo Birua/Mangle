@@ -30,6 +30,7 @@ class Book:
     DefaultOverwrite = True
     DefaultImageFlags = ImageFlags.Orient | ImageFlags.Resize | ImageFlags.Quantize | ImageFlags.Split | ImageFlags.Cbz | ImageFlags.Crop
     DefaultCropThreshold = 5.0
+    DefaultProgressBar = 5
 
 
     def __init__(self):
@@ -41,6 +42,7 @@ class Book:
         self.overwrite = Book.DefaultOverwrite
         self.imageFlags = Book.DefaultImageFlags
         self.cropThreshold = Book.DefaultCropThreshold
+        self.progressBar = Book.DefaultProgressBar
 
 
     def save(self, filename):
@@ -54,6 +56,7 @@ class Book:
         root.setAttribute('device', self.device)
         root.setAttribute('imageFlags', self.imageFlags)
         root.setAttribute('cropThreshold', self.cropThreshold)
+        root.setAttribute('progressBar', self.progressBar)
 
         for filenameImg in self.images:
             itemImg = document.createElement('image')
@@ -92,6 +95,7 @@ class Book:
 
         self.title = root.attribute('title', 'Untitled')
         self.cropThreshold = root.attribute('cropThreshold', "5.0").toDouble()[0]
+        self.progressBar = root.attribute('progressBar', "5")
         self.overwrite = root.attribute('overwrite', 'true' if Book.DefaultOverwrite else 'false') == 'true'
         self.device = root.attribute('device', Book.DefaultDevice)
         self.imageFlags = int(root.attribute('imageFlags', str(Book.DefaultImageFlags)))
@@ -394,7 +398,9 @@ class MainWindowBook(QtGui.QMainWindow, Ui_MainWindowBook):
 	    if rarfile.is_rarfile(unicode(filename)):
                 filenames.remove(filename)
                 try:
-                    for name in rarfile.RarFile(unicode(filename)).namelist():
+                    for name in sorted(rarfile.RarFile(unicode(filename)).namelist(), cmp=self.smart_sort):
+                    #Smart Sort for archives is good!
+##                    for name in rarfile.RarFile(unicode(filename)).namelist():
                         if self.isImageFile(name,inArchive=True):
                             filenames.append("RAR://%s NAME://%s"%(filename,name))
                 except UnicodeDecodeError:
@@ -402,7 +408,8 @@ class MainWindowBook(QtGui.QMainWindow, Ui_MainWindowBook):
             if zipfile.is_zipfile(unicode(filename)):
                 filenames.remove(filename)
                 try:
-                    for name in zipfile.ZipFile(unicode(filename)).namelist():
+                    for name in sorted(zipfile.ZipFile(unicode(filename)).namelist(), cmp=self.smart_sort):
+##                    for name in zipfile.ZipFile(unicode(filename)).namelist():
 			try:
 			    unicode_name = name.decode('UTF-8').encode('UTF-8')
 			except:
