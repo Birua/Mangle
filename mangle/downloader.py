@@ -165,7 +165,7 @@ class ReadmangaThread(DownloadThread):
                     return
             pageobj = urllib.urlopen(pageurl+"?mature=1")
             pagestr = pageobj.read()
-            pagereg = re.compile(r"var pics = \[(.*?)\]")
+            pagereg = re.compile(r"var pictures = \[(.*?)\]")
             linksstr = pagereg.findall(pagestr)
             linksreg = re.compile(r"url:\"(.*?)\"")
             try:
