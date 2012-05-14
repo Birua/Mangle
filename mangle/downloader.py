@@ -19,15 +19,15 @@ from ui.downloader_ui import Ui_Downloader
 
 class Downloader(QtGui.QWidget, Ui_Downloader):
     avaliableSites = [ "readmanga.ru" , "adultmanga.ru" , "mangareader.net" ]
-    def __init__(self, sitename, manganame, output_directory):
+    def __init__(self, sitename, manganame, output_directory, chapters):
         QtGui.QWidget.__init__(self)
         self.setupUi(self)
         if not sitename in self.avaliableSites:
             raise RuntimeError("Can't download manga from %s" % sitename)
         if sitename == "mangareader.net":
-            self.downloadThread = MangareaderThread(sitename,manganame,output_directory)
+            self.downloadThread = MangareaderThread(sitename,manganame,output_directory,chapters)
         else:
-            self.downloadThread = ReadmangaThread(sitename,manganame,output_directory)
+            self.downloadThread = ReadmangaThread(sitename,manganame,output_directory,chapters)
         QtCore.QObject.connect(self.downloadThread,QtCore.SIGNAL("pagesCounted(int)"),self.pageProgressBar.setMaximum)
         QtCore.QObject.connect(self.downloadThread,QtCore.SIGNAL("picsCounted(int)"),self.picProgressBar.setMaximum)
         QtCore.QObject.connect(self.downloadThread,QtCore.SIGNAL("log(QString)"),self.log.append)
@@ -36,7 +36,7 @@ class Downloader(QtGui.QWidget, Ui_Downloader):
         QtCore.QObject.connect(self.downloadThread,QtCore.SIGNAL("pageLabelChanged(QString)"),self.pageLabel.setText)
         QtCore.QObject.connect(self.downloadThread,QtCore.SIGNAL("picLabelChanged(QString)"),self.picLabel.setText)
         QtCore.QObject.connect(self.downloadThread,QtCore.SIGNAL("finish(QString)"),self.finish)
-        self.log.append("Downloading manga '%s' from site %s to %s"%(manganame,
+        self.log.append("Downloading manga '%s' chapters '%s' from site %s to %s"%(manganame, chapters,
                                                            sitename,
                                                            output_directory))
 
@@ -53,15 +53,16 @@ class Downloader(QtGui.QWidget, Ui_Downloader):
         self.downloadThread.terminate()
 
 class DownloadThread(QtCore.QThread):
-    def __init__(self, site, name, outdir):
+    def __init__(self, site, name, outdir,chapters):
         QtCore.QThread.__init__(self)
         self.site = site
         self.name = name
         self.outdir = outdir
+        self.chapters = chapters
 
 class MangareaderThread(DownloadThread):
-    def __init__(self, site, name, outdir):
-        DownloadThread.__init__(self,site,name,outdir)
+    def __init__(self, site, name, outdir,chapters):
+        DownloadThread.__init__(self,site,name,outdir,chapters)
 
     def download(self, url, filename):
         try:
@@ -91,11 +92,21 @@ class MangareaderThread(DownloadThread):
             return
         chapterList = cl.findAll('a')
         self.emit(QtCore.SIGNAL("pagesCounted(int)"),len(chapterList))
+
+        ChaptersRange = OpenInputRange(self.chapters)
+
         for a in chapterList:
             html = urllib.urlopen("%s%s"%(base_url, a['href'])).read()
             chapter = BeautifulSoup(html)
             chapter_num = re.findall(r"document\['chapterno'\] = (\d+);", html)[0]
             cur_dir = "%s%s/"%(download_dir, chapter_num)
+
+#=========Skipping chapters that are not in the list============
+            if  len(ChaptersRange) <> 0:
+              if int(chapter_num) not in ChaptersRange:
+                self.emit(QtCore.SIGNAL("log(QString)"),QtCore.QString("Skipping chapter %s"%chapter_num))
+                continue #skip to the next iteration of a in chapterList
+
             if not os.path.isdir(cur_dir):
                 try:
                     os.makedirs(cur_dir)
@@ -131,9 +142,33 @@ class MangareaderThread(DownloadThread):
         self.emit(QtCore.SIGNAL("currentPageChanged(int)"),len(chapterList))
         self.emit(QtCore.SIGNAL("finish(QString)"),'')
 
+
+def OpenInputRange(x):
+
+     result = []
+
+     if len(re.findall('\d+',x)) == 0:
+        return result
+
+     for part in x.split(','):
+         if '-' in part:
+             try:
+               a, b = part.split('-')
+               a, b = int(a), int(b)
+               result.extend(range(a, b + 1))
+             except:
+               continue
+         else:
+             try:
+               a = int(part)
+               result.append(a)
+             except:
+               continue
+     return result
+
 class ReadmangaThread(DownloadThread):
-    def __init__(self, site, name, outdir):
-        DownloadThread.__init__(self,site,name,outdir)
+    def __init__(self, site, name, outdir, chapters):
+        DownloadThread.__init__(self,site,name,outdir,chapters)
 
     def run(self):
         i = 0 # file enumerator
@@ -149,8 +184,19 @@ class ReadmangaThread(DownloadThread):
             self.emit(QtCore.SIGNAL("finish(QString)"),'Manga not found')
             return
         self.emit(QtCore.SIGNAL("pagesCounted(int)"),len(rsslist))
+
+        ChaptersRange = OpenInputRange(self.chapters)
+
         for pageurl in rsslist:
             self.emit(QtCore.SIGNAL("log(QString)"),QtCore.QString("Page %s"%pageurl))
+
+#=========Skipping chapters that are not in the list============
+            currentChapter = int(re.findall('\d+',pageurl)[-1])
+            if  len(ChaptersRange) <> 0:
+              if currentChapter not in ChaptersRange:
+                self.emit(QtCore.SIGNAL("log(QString)"),QtCore.QString("Skipping chapter %s"%currentChapter))
+                continue #skip to the next iteration of pageurl
+
             self.emit(QtCore.SIGNAL("currentPageChanged(int)"),rsslist.index(pageurl))
             self.emit(QtCore.SIGNAL("pageLabelChanged(QString)"),QtCore.QString(pageurl))
             self.emit(QtCore.SIGNAL("picLabelChanged(QString)"),QtCore.QString("..."))

@@ -146,12 +146,15 @@ class MainWindowBook(QtGui.QMainWindow, Ui_MainWindowBook):
             name, ok = QtGui.QInputDialog.getText(self,'Manga downloading','Please, enter manga name:')
             if not ok:
                 return
+            chapters, ok = QtGui.QInputDialog.getText(self,'Chapters (optional)','Please, select chapters (1,5,6-15) or Cancel/Empty for full download:')
+            if not ok:
+                chapters = ""
             directory = QtGui.QFileDialog.getExistingDirectory(self,'Select directory to save manga',self.settings.value("downloadManga",QtCore.QDir.tempPath()).toString())
             if not os.path.isdir(unicode(directory)):
                 return
 	    self.settings.setValue("downloadManga",directory);
             self.book.title = name[:].replace("_"," ").replace("-"," ")
-            self.d = Downloader(action.text(),unicode(name),unicode(directory))
+            self.d = Downloader(action.text(),unicode(name),unicode(directory),unicode(chapters))
             self.d.setWindowModality(QtCore.Qt.ApplicationModal)
             self.d.show()
             QtCore.QObject.connect(self.d.downloadThread,QtCore.SIGNAL("targetCompleted(QString)"),self.addImageFile)
